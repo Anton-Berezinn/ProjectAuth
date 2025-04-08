@@ -1,0 +1,7 @@
+FROM golang:1.22.5
+
+WORKDIR app/new
+
+COPY main.go .
+
+ENTRYPOINT ["go", "run","main.go"]
