@@ -1,1 +1,0 @@
-package project_with_diman

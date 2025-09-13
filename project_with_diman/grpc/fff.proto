@@ -1,0 +1,27 @@
+syntax="proto3";
+
+option go_package = "./protofile";
+
+package main;
+
+message User{
+  int64 Id = 1;
+  string UserName = 2;
+}
+
+message AddUsers {
+  string Username = 1;
+}
+
+message Emty {
+
+}
+
+message UsersList {
+  repeated User users = 1;
+}
+
+service Users {
+  rpc AddUser(AddUsers) returns(Emty);
+  rpc GetUsers(Emty) returns(UsersList);
+}

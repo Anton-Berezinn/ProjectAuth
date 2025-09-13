@@ -1,0 +1,6 @@
+project:
+  port: "8080"
+  db:
+    login: "postgres"
+    password: "Torpedo8+"
+
