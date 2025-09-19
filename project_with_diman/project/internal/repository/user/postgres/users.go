@@ -67,7 +67,7 @@ func (db *DB) CreateUser(ctx context.Context, firstname, lastname, email, passwo
 		return 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return 1, nil
+	return id, nil
 }
 
 func (db *DB) LoginUser(ctx context.Context, email, password string) (int, error) {
