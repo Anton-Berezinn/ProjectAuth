@@ -3,6 +3,8 @@ package handlers
 import (
 	"Project/internal/handlers/auth"
 	"Project/internal/manager"
+	"Project/internal/metrics/prometheus"
+	"context"
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -10,7 +12,8 @@ import (
 	"time"
 )
 
-func StartEcho(port string, project *manager.Project) {
+func StartEcho(ctx context.Context, port string, project *manager.Project) {
+
 	e := echo.New()
 	e.Server.ReadTimeout = 10 * time.Minute  // 60 * time.Second
 	e.Server.WriteTimeout = 10 * time.Minute // 60 * time.Second
@@ -34,6 +37,8 @@ func StartEcho(port string, project *manager.Project) {
 			},
 		}),
 	)
+
+	go prometheus.StartPrometheus(ctx)
 
 	auth.HandlerAuth(e, project)
 	fmt.Println("starting serve on port %s", port)
