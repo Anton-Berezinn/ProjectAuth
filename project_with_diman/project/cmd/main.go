@@ -6,7 +6,7 @@ import (
 	"Project/internal/handlers"
 	"Project/internal/logger"
 	"Project/internal/manager"
-	"Project/internal/services/users"
+	"Project/internal/services"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +14,6 @@ import (
 )
 
 func main() {
-	//Todo: prometheus,grafana,kafka,hash256 password, проверить ручку, что по версии токена можно заходить
 	config, err := configs.New()
 	if err != nil {
 		if errors.Is(err, configs.ErrData) {
@@ -25,19 +24,24 @@ func main() {
 	}
 
 	logg := logger.New()
-	db, err := users.NewDb(config)
+	db, err := services.NewDb(config)
 	if err != nil {
 		fmt.Println("Error to open database", err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
-	cache, err := redis.NewClient(ctx)
+	cacheUser, err := redis.NewClientUser(ctx)
 	if err != nil {
 		fmt.Println("Error to open cache", err)
 		return
 	}
-	Model, err := manager.NewProject(db, logg, cache)
+	cacheCatalog, err := redis.NewClientCatalog(ctx)
+	if err != nil {
+		fmt.Println("Error to open cache", err)
+		return
+	}
+	Model, err := manager.NewProject(db, logg, cacheUser, cacheCatalog)
 	if err != nil {
 		fmt.Println("error to NewProject", err)
 		return

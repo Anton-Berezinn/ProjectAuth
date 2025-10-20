@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis"
+	"os"
 	"time"
 )
 
@@ -16,8 +17,23 @@ type RedisCache struct {
 	client *redis.Client
 }
 
-func NewClient(ctx context.Context) (*RedisCache, error) {
-	client := redis.NewClient(&redis.Options{})
+func NewClientUser(ctx context.Context) (*RedisCache, error) {
+	redisHost := os.Getenv("REDIS_HOST")
+	if redisHost == "" {
+		redisHost = "localhost"
+	}
+
+	redisPort := os.Getenv("REDIS_PORT")
+	if redisPort == "" {
+		redisPort = "6379"
+	}
+
+	addr := fmt.Sprintf("%s:%s", redisHost, redisPort)
+
+	client := redis.NewClient(&redis.Options{
+		Addr: addr,
+		DB:   1,
+	})
 
 	if err := client.Ping().Err(); err != nil {
 		fmt.Printf("failed to connect to redis server: %s\n", err.Error())
@@ -25,13 +41,11 @@ func NewClient(ctx context.Context) (*RedisCache, error) {
 	}
 
 	newClient := &RedisCache{client: client}
-
 	return newClient, nil
 }
 
 func (r *RedisCache) GetData(ctx context.Context, key string) (string, error) {
 	val, err := r.client.Get(key).Result()
-	fmt.Println(val)
 	if err == redis.Nil {
 		return "", fmt.Errorf("key not found %w", ErrNotFound)
 	}

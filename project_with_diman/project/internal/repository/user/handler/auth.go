@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"Project/internal/brokker/kafka"
+	"Project/internal/cache/redis"
 	"Project/internal/manager"
+	"Project/internal/metrics/prometheus"
 	"Project/internal/models"
 	"Project/internal/repository/user/postgres"
 	j "Project/internal/token/jwt"
@@ -10,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 var (
@@ -18,10 +22,13 @@ var (
 	ErrLenPassword    = errors.New("password is too short")
 	ErrNotValidEmail  = errors.New("email is not valid")
 	ErrNotValidName   = errors.New("last name and first name are required")
+	ErrKafka          = errors.New("kafka is invalid")
 	re                = regexp.MustCompile(`^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$`)
 )
 
 func RegisterHandler(ctx context.Context, req *models.RegisterRequest, project *manager.Project) (string, error) {
+	start := time.Now()
+	defer prometheus.RequestDuration.Observe(time.Since(start).Seconds())
 	if len(req.Password) < 6 {
 		return "", fmt.Errorf("Password is too short %w", ErrLenPassword)
 	}
@@ -42,7 +49,7 @@ func RegisterHandler(ctx context.Context, req *models.RegisterRequest, project *
 
 	version := 1
 
-	err = project.Cache.SetData(ctx, strconv.Itoa(userId), strconv.Itoa(version))
+	err = project.CacheUser.SetData(ctx, strconv.Itoa(userId), strconv.Itoa(version))
 	if err != nil {
 		project.Logger.Println("failed to set data from redis server", err)
 	}
@@ -53,10 +60,18 @@ func RegisterHandler(ctx context.Context, req *models.RegisterRequest, project *
 		return "", err
 	}
 
+	err = kafka.Producer(ctx, req.Email, userId)
+	if err != nil {
+		project.Logger.Println("Error to produce data from kafka", err)
+		return token, fmt.Errorf("failed to kafka %s %w", err.Error(), ErrKafka)
+	}
+
 	return token, nil
 }
 
 func LoginHandler(ctx context.Context, req *models.LoginRequest, project *manager.Project) (string, error) {
+	start := time.Now()
+	defer prometheus.RequestDuration.Observe(time.Since(start).Seconds())
 
 	if len(req.Password) < 6 {
 		return "", fmt.Errorf("Password is too short %w", ErrLenPassword)
@@ -73,22 +88,45 @@ func LoginHandler(ctx context.Context, req *models.LoginRequest, project *manage
 		}
 		return "", fmt.Errorf("failed to login: %w", err)
 	}
-	data, err := project.Cache.GetData(ctx, strconv.Itoa(userId))
-	version, err := strconv.Atoi(string(data))
+	version := 0
+	data, err := project.CacheUser.GetData(ctx, strconv.Itoa(userId))
 	if err != nil {
-		project.Logger.Fatalln("Error to Parse Value version from cache", err.Error())
-		return "", err
+		if errors.Is(err, redis.ErrNotFound) {
+			version = 1
+			err = project.CacheUser.SetData(ctx, strconv.Itoa(userId), strconv.Itoa(version))
+			if err != nil {
+				project.Logger.Println("failed to set data from redis server", err)
+				return "", err
+			}
+		} else {
+			project.Logger.Println("failed to cache data from redis server", err)
+			return "", err
+		}
+	}
+	if version == 0 {
+		versionNew, err := strconv.Atoi(string(data))
+		if err != nil {
+			project.Logger.Fatalln("Error to Parse Value version from cache", err.Error())
+			return "", err
+		}
+		version = versionNew
 	}
 
 	userid := strconv.Itoa(userId)
 	version += 1
 
-	err = project.Cache.UpdateData(ctx, userid, version)
-
+	err = project.CacheUser.UpdateData(ctx, userid, version)
 	token, err := j.NewJwt(ctx, userId, &version)
 	if err != nil {
 		project.Logger.Fatalln("Error to create token %s", err.Error())
 		return "", err
 	}
+
+	err = kafka.Producer(ctx, req.Email, userId)
+	if err != nil {
+		project.Logger.Println("Error to produce data from kafka", err)
+		return token, fmt.Errorf("failed to kafka %s %w", err.Error(), ErrKafka)
+	}
+
 	return token, nil
 }

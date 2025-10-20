@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"Project/internal/handlers/auth"
+	"Project/internal/handlers/catalog"
 	"Project/internal/manager"
 	"Project/internal/metrics/prometheus"
 	"context"
@@ -10,6 +11,8 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"net/http"
 	"time"
+	"io"
+	"net"
 )
 
 func StartEcho(ctx context.Context, port string, project *manager.Project) {
@@ -41,6 +44,34 @@ func StartEcho(ctx context.Context, port string, project *manager.Project) {
 	go prometheus.StartPrometheus(ctx)
 
 	auth.HandlerAuth(e, project)
+	catalog.HandlerCatalogs(e, project)
+
+	// external IP endpoint
+	e.GET("/external-ip", func(c echo.Context) error {
+		ctxReq, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+		defer cancel()
+
+		// prefer a transport that respects timeouts
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
+		}
+		client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+
+		req, err := http.NewRequestWithContext(ctxReq, http.MethodGet, "https://api.ipify.org?format=json", nil)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "request build failed"})
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return c.JSON(http.StatusBadGateway, map[string]string{"error": "upstream failed"})
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "read upstream failed"})
+		}
+		return c.Blob(resp.StatusCode, "application/json", body)
+	})
 	fmt.Println("starting serve on port %s", port)
 	if err := http.ListenAndServe(":"+port, e); err != nil {
 	}
