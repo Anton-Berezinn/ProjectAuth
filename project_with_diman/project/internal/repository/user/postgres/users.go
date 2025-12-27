@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
+	"log"
 )
 
 type DB struct {
@@ -28,8 +30,20 @@ type User struct {
 	Password  string
 }
 
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		return "", fmt.Errorf("error to hash password: %w", err)
+	}
+	return string(bytes), err
+}
+
+func CompareHashAndPassword(hash, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+}
+
 func NewConnect(config *configs.Config) (*sql.DB, error) {
-	db, err := sql.Open("postgres", fmt.Sprintf("user=%s password=%s dbname=users sslmode=disable", config.Project.Db.Login, config.Project.Db.Password))
+	db, err := sql.Open("postgres", fmt.Sprintf("host=localhost port=5432 user=%s password=%s  sslmode=disable", config.Project.Db.Login, config.Project.Db.Password))
 	if err != nil {
 		return nil, fmt.Errorf(`failed to open database: %w`, ErrOpen)
 	}
@@ -51,15 +65,20 @@ func (db *DB) CreateUser(ctx context.Context, firstname, lastname, email, passwo
 	}
 	defer tx.Rollback()
 
+	pass, err := HashPassword(password)
+	if err != nil {
+		fmt.Println(err)
+		return 0, fmt.Errorf("failed to hash password: %w", err)
+	}
+	fmt.Println(pass)
 	query := `INSERT INTO users (firstname, lastname, email, password) VALUES ($1, $2, $3, $4) RETURNING id`
 	var id int
-	err = tx.QueryRow(query, firstname, lastname, email, password).Scan(&id)
+	err = tx.QueryRow(query, firstname, lastname, email, pass).Scan(&id)
 	if err != nil {
 		if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "23505" {
-			// 23505 — уникальное ограничение нарушено
 			return 0, fmt.Errorf("Duplicate email error: %w", ErrDuplicateEntry)
 		}
-
+		log.Println("failed to insert user:", err)
 		return 0, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -70,7 +89,7 @@ func (db *DB) CreateUser(ctx context.Context, firstname, lastname, email, passwo
 	return id, nil
 }
 
-func (db *DB) LoginUser(ctx context.Context, email, password string) (int, error) {
+func (db *DB) GetUser(ctx context.Context, email, password string) (int, error) {
 	tx, err := db.sql.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
@@ -81,15 +100,19 @@ func (db *DB) LoginUser(ctx context.Context, email, password string) (int, error
 
 	u := &User{}
 
-	err = row.Scan(&u.Id, &u.LastName, &u.FirstName, &u.Password, &u.Email)
+	err = row.Scan(&u.Id, &u.LastName, &u.FirstName, &u.Email, &u.Password)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 
 			return 0, fmt.Errorf("email or password is incorrect: %w", ErrNoRows)
 		}
+		log.Println("Error scan rows:", err)
 		return 0, fmt.Errorf("failed to scan user: %w", err)
 	}
-	if u.Password != password {
+
+	err = CompareHashAndPassword(u.Password, password)
+	if err != nil {
+		fmt.Println(err)
 		return 0, fmt.Errorf("email or password is incorrect: %w", ErrNoRows)
 	}
 

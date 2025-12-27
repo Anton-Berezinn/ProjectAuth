@@ -1,4 +1,4 @@
-package users
+package services
 
 import (
 	"Project/internal/configs"
@@ -24,6 +24,6 @@ func (s *UserService) CreateUser(ctx context.Context, firstname, lastname, email
 }
 
 func (s *UserService) LoginUser(ctx context.Context, email, password string) (int, error) {
-	return s.db.LoginUser(ctx, email, password)
+	return s.db.GetUser(ctx, email, password)
 
 }

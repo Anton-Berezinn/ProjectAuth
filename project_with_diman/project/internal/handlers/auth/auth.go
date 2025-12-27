@@ -35,7 +35,7 @@ func CheckVersion(c echo.Context, project *manager.Project) error {
 	if err != nil {
 		fmt.Println(err)
 	}
-	version, err := project.Cache.GetData(ctx, strconv.Itoa(j.UserId))
+	version, err := project.CacheUser.GetData(ctx, strconv.Itoa(j.UserId))
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -54,6 +54,7 @@ func Register(c echo.Context, project *manager.Project) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Error in server"})
 	}
+	fmt.Println(req)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*1)
 	defer cancel()
@@ -68,6 +69,10 @@ func Register(c echo.Context, project *manager.Project) error {
 		}
 		if errors.Is(err, handler.ErrNotValidName) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid name"})
+		}
+
+		if errors.Is(err, handler.ErrKafka) {
+			return c.JSON(http.StatusOK, map[string]string{"token": token})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "serve Error"})
 	}
@@ -90,6 +95,9 @@ func Login(c echo.Context, project *manager.Project) error {
 	if err != nil {
 		if errors.Is(err, handler.ErrNotValid) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid email or password"})
+		}
+		if errors.Is(err, handler.ErrKafka) {
+			return c.JSON(http.StatusOK, map[string]string{"token": token})
 		}
 		log.Println("Error to Login %s", err.Error())
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "serve Error"})
